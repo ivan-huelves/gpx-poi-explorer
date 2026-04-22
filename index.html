@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GPX Pro Explorer - Garmin Ready</title>
+    <title>GPX Pro Explorer - Motor BBox</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
@@ -27,13 +27,12 @@
     </select>
 
     <div class="filter-group">
-        <label><input type="checkbox" class="poi-filter" value="viewpoint" checked> Miradores</label>
-        <label><input type="checkbox" class="poi-filter" value="fountain" checked> Fuentes</label>
-        <label><input type="checkbox" class="poi-filter" value="peak" checked> Cimas</label>
-        <label><input type="checkbox" class="poi-filter" value="castle,museum,monument"> Cultura</label>
+        <label><input type="checkbox" id="chk-agua" checked> Agua/Fuentes</label>
+        <label><input type="checkbox" id="chk-refugio" checked> Refugios/Acampada</label>
+        <label><input type="checkbox" id="chk-mirador" checked> Miradores/Cimas</label>
     </div>
 
-    <button class="btn-search" onclick="buscarPOIs()">Escanear Ruta</button>
+    <button class="btn-search" onclick="buscarPOIs()">Escanear Ruta (BBox)</button>
     <button class="btn-download" onclick="descargarGPX()">Guardar para Garmin</button>
     <div id="status" class="status">Carga un archivo GPX</div>
 </div>
@@ -52,14 +51,12 @@
     let trackLayer = null;
     const statusBox = document.getElementById('status');
 
-    const garminSymbols = {
-        'viewpoint': 'Scenic Area',
-        'fountain': 'Drinking Water',
-        'peak': 'Summit',
-        'castle': 'Museum',
-        'museum': 'Museum',
-        'monument': 'Historic Site'
-    };
+    // Servidores de respaldo extraídos de tu script
+    const servers = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.openstreetmap.fr/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter"
+    ];
 
     document.getElementById('gpxFile').addEventListener('change', function(e) {
         const reader = new FileReader();
@@ -82,63 +79,122 @@
         reader.readAsText(e.target.files[0]);
     });
 
-    async function buscarPOIs() {
-        if (!routePoints.length) return alert("Sube la ruta");
-        const radius = document.getElementById('radius').value;
-        const selected = Array.from(document.querySelectorAll('.poi-filter:checked'))
-                             .map(c => c.value).join(',').split(',');
-
-        statusBox.innerText = "Enviando paquete unificado al servidor...";
-        
-        const step = Math.max(1, Math.floor(routePoints.length / 40));
-        const scanPoints = routePoints.filter((_, i) => i % step === 0);
-        
-        const coordsString = scanPoints.map(p => `${p[0]},${p[1]}`).join(',');
-        
-        let typesQuery = "";
-        selected.forEach(t => {
-            typesQuery += `node["tourism"="${t}"](around:${radius},${coordsString});\n`;
-            typesQuery += `node["natural"="${t}"](around:${radius},${coordsString});\n`;
-            typesQuery += `node["amenity"="${t}"](around:${radius},${coordsString});\n`;
-            typesQuery += `node["historic"="${t}"](around:${radius},${coordsString});\n`;
-        });
-
-        const query = `[out:json][timeout:30];\n(${typesQuery});\nout body;`;
-        pois = [];
-
-        try {
-            const res = await fetch("https://overpass-api.de/api/interpreter", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: "data=" + encodeURIComponent(query)
-            });
-
-            if (!res.ok) throw new Error("El servidor rechazó la conexión");
-
-            const data = await res.json();
-            
-            if (data && data.elements) {
-                data.elements.forEach(el => {
-                    if (!pois.find(p => p.id === el.id)) {
-                        const type = el.tags.tourism || el.tags.natural || el.tags.amenity || el.tags.historic || "generic";
-                        el.type = type;
-                        renderPOI(el);
-                        pois.push(el);
-                    }
-                });
-            }
-            statusBox.innerText = "Escaneo finalizado con " + pois.length + " lugares";
-        } catch (err) { 
-            console.error(err);
-            statusBox.innerText = "Fallo de conexión o límite excedido";
-        }
+    // Fórmula Haversine para medir distancias reales en la Tierra
+    function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3;
+        const rad = Math.PI / 180;
+        const dLat = (lat2 - lat1) * rad;
+        const dLon = (lon2 - lon1) * rad;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * rad) * Math.cos(lat2 * rad) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
     }
 
-    function renderPOI(p) {
-        const color = p.type === 'fountain' ? 'blue' : p.type === 'viewpoint' ? 'green' : 'orange';
-        const dot = L.circleMarker([p.lat, p.lon], {radius: 8, color: color, fillOpacity: 0.8}).addTo(map);
-        dot.bindPopup(`<b>${p.tags.name || 'Punto de interés'}</b><br><small>${p.type}</small><br><button onclick="window.borrar(${p.id})">Quitar de la ruta</button>`);
-        p.marker = dot;
+    async function buscarPOIs() {
+        if (!routePoints.length) return alert("Sube la ruta primero");
+        
+        statusBox.innerText = "Calculando área delimitadora...";
+        const radius = parseInt(document.getElementById('radius').value);
+        
+        // Calculamos la BBox de la ruta
+        let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+        routePoints.forEach(p => {
+            if (p[0] < minLat) minLat = p[0];
+            if (p[0] > maxLat) maxLat = p[0];
+            if (p[1] < minLon) minLon = p[1];
+            if (p[1] > maxLon) maxLon = p[1];
+        });
+
+        // Ampliamos la caja según el radio seleccionado
+        const margin = (radius / 111000) + 0.01; 
+        const bbox = `${minLat - margin},${minLon - margin},${maxLat + margin},${maxLon + margin}`;
+
+        // Construimos la consulta según lo seleccionado
+        let filtros = "";
+        if (document.getElementById('chk-agua').checked) {
+            filtros += `node["amenity"~"drinking_water|water_point|watering_place"](${bbox});`;
+            filtros += `node["natural"="spring"](${bbox});`;
+            filtros += `node["man_made"="water_tap"](${bbox});`;
+        }
+        if (document.getElementById('chk-refugio').checked) {
+            filtros += `node["amenity"="shelter"](${bbox});`;
+            filtros += `node["tourism"~"alpine_hut|wilderness_hut|camp_site"](${bbox});`;
+        }
+        if (document.getElementById('chk-mirador').checked) {
+            filtros += `node["tourism"="viewpoint"](${bbox});`;
+            filtros += `node["natural"="peak"](${bbox});`;
+        }
+
+        if (!filtros) return alert("Selecciona al menos un filtro");
+
+        const query = `[out:json][timeout:60];(${filtros});out center;`;
+        
+        // Intentamos conectar con los servidores en orden
+        let data = null;
+        for (const url of servers) {
+            statusBox.innerText = `Consultando servidor: ${url.split('//')[1].split('/')[0]}...`;
+            try {
+                const res = await fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: "data=" + encodeURIComponent(query)
+                });
+                if (res.ok) {
+                    data = await res.json();
+                    break;
+                }
+            } catch (err) { console.log("Fallo en", url); }
+        }
+
+        if (!data || !data.elements) {
+            return statusBox.innerText = "Error: Todos los servidores están saturados.";
+        }
+
+        statusBox.innerText = `Filtrando ${data.elements.length} resultados por distancia exacta...`;
+        
+        // Limpiamos resultados anteriores
+        pois.forEach(p => map.removeLayer(p.marker));
+        pois = [];
+
+        // Filtramos por distancia real a la ruta
+        data.elements.forEach(el => {
+            const lat = el.lat || (el.center && el.center.lat);
+            const lon = el.lon || (el.center && el.center.lon);
+            if (!lat || !lon) return;
+
+            // Comprobamos si está a menos del radio indicado de algún punto de la ruta
+            let isNear = false;
+            // Para agilizar revisamos 1 de cada 10 puntos de la ruta
+            for (let i = 0; i < routePoints.length; i += 10) {
+                if (getDistance(lat, lon, routePoints[i][0], routePoints[i][1]) <= radius) {
+                    isNear = true;
+                    break;
+                }
+            }
+
+            if (isNear) {
+                const tags = el.tags || {};
+                let tipo = "POI"; let sym = "Waypoint"; let color = "gray";
+
+                if (tags.amenity === "drinking_water" || tags.natural === "spring" || tags.man_made === "water_tap") {
+                    tipo = "Agua"; sym = "Drinking Water"; color = "blue";
+                } else if (tags.amenity === "shelter" || tags.tourism === "alpine_hut") {
+                    tipo = "Refugio"; sym = "Lodge"; color = "purple";
+                } else if (tags.tourism === "viewpoint" || tags.natural === "peak") {
+                    tipo = "Vistas"; sym = "Scenic Area"; color = "green";
+                }
+
+                const dot = L.circleMarker([lat, lon], {radius: 8, color: color, fillOpacity: 0.8}).addTo(map);
+                const nombre = tags.name || tipo;
+                
+                dot.bindPopup(`<b>${nombre}</b><br><small>${tipo}</small><br><button onclick="window.borrar(${el.id})">Descartar</button>`);
+                
+                pois.push({ id: el.id, lat: lat, lon: lon, nombre: nombre, sym: sym, marker: dot });
+            }
+        });
+
+        statusBox.innerText = `Escaneo finalizado. Añadidos ${pois.length} lugares a tu ruta.`;
     }
 
     window.borrar = function(id) {
@@ -146,28 +202,24 @@
         if (idx > -1) {
             map.removeLayer(pois[idx].marker);
             pois.splice(idx, 1);
-            statusBox.innerText = "Punto borrado. Quedan " + pois.length;
+            statusBox.innerText = `Punto descartado. Quedan ${pois.length} lugares.`;
         }
     };
 
     function descargarGPX() {
         if (pois.length === 0) return alert("No hay puntos para descargar");
         
-        const waypointsXml = pois.map(p => {
-            const sym = garminSymbols[p.type] || 'Waypoint';
-            const safeName = (p.tags.name || 'Punto').replace(/[&<>"']/g, "");
-            return `
+        const waypointsXml = pois.map(p => `
     <wpt lat="${p.lat}" lon="${p.lon}">
-        <name>${safeName}</name>
-        <sym>${sym}</sym>
-    </wpt>`;
-        }).join("");
+        <name>${p.nombre.replace(/[&<>"']/g, "")}</name>
+        <sym>${p.sym}</sym>
+    </wpt>`).join("");
 
         const finalContent = originalXml.replace('</gpx>', waypointsXml + '\n</gpx>');
         const blob = new Blob([finalContent], {type: 'application/gpx+xml'});
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = "ruta_garmin_pro.gpx";
+        a.download = "ruta_enriquecida.gpx";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
