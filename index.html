@@ -2,19 +2,40 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GPX Pro Explorer - Motor BBox Avanzado</title>
+    <title>GPX Pro Explorer - Sidebar Edition</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-        #controls { padding: 15px; background: #2c3e50; color: white; display: flex; gap: 15px; flex-wrap: wrap; align-items: center; border-bottom: 3px solid #1a252f; }
-        #map { flex-grow: 1; }
-        .status { font-size: 0.85em; background: #34495e; padding: 5px 10px; border-radius: 4px; }
-        button { cursor: pointer; padding: 10px 15px; border: none; border-radius: 4px; font-weight: bold; }
-        .btn-search { background: #3498db; color: white; }
+        body { font-family: sans-serif; margin: 0; display: flex; flex-direction: row; height: 100vh; overflow: hidden; }
+        
+        #sidebar { 
+            width: 340px; 
+            background: #2c3e50; 
+            color: white; 
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 15px; 
+            overflow-y: auto; 
+            box-sizing: border-box;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        
+        #map { flex-grow: 1; height: 100vh; }
+        
+        h2 { margin: 0 0 10px 0; font-size: 1.2em; color: #ecf0f1; border-bottom: 1px solid #34495e; padding-bottom: 10px;}
+        .status { font-size: 0.85em; background: #34495e; padding: 10px; border-radius: 4px; text-align: center;}
+        
+        button { cursor: pointer; padding: 12px; border: none; border-radius: 4px; font-weight: bold; font-size: 1em; width: 100%; transition: background 0.2s;}
+        .btn-search { background: #3498db; color: white; margin-top: 10px; }
         .btn-search:hover { background: #2980b9; }
         .btn-download { background: #27ae60; color: white; }
         .btn-download:hover { background: #219653; }
-        .filter-group { display: flex; gap: 10px; background: #34495e; padding: 8px; border-radius: 4px; flex-wrap: wrap; }
+        
+        .filter-section { display: flex; flex-direction: column; gap: 8px; background: #34495e; padding: 12px; border-radius: 4px; }
+        .filter-section label { cursor: pointer; font-size: 0.9em; display: flex; align-items: center; gap: 8px;}
+        select, input[type="file"] { width: 100%; padding: 8px; box-sizing: border-box; background: #ecf0f1; border: none; border-radius: 4px; color: #333;}
+        
         .custom-icon div { 
             font-size: 16px; background: white; border: 2px solid #2c3e50; 
             border-radius: 50%; width: 28px; height: 28px; 
@@ -23,31 +44,40 @@
         }
         .popup-link { display: inline-block; margin-top: 8px; color: #2980b9; text-decoration: none; font-weight: bold; }
         .popup-link:hover { text-decoration: underline; }
-        .popup-btn-desc { margin-top: 10px; width: 100%; background: #e74c3c; color: white; padding: 5px; }
+        .popup-btn-desc { margin-top: 10px; width: 100%; background: #e74c3c; color: white; padding: 6px; border: none; border-radius: 4px; cursor: pointer;}
     </style>
 </head>
 <body>
 
-<div id="controls">
-    <input type="file" id="gpxFile" accept=".gpx">
+<div id="sidebar">
+    <h2>GPX Explorer Pro</h2>
     
-    <select id="radius">
-        <option value="5000">Radio 5 km</option>
-        <option value="10000">Radio 10 km</option>
-    </select>
+    <div>
+        <label style="font-size: 0.9em; margin-bottom:5px; display:block;">1. Archivo de ruta</label>
+        <input type="file" id="gpxFile" accept=".gpx">
+    </div>
+    
+    <div>
+        <label style="font-size: 0.9em; margin-bottom:5px; display:block;">2. Distancia de búsqueda</label>
+        <select id="radius">
+            <option value="5000">Radio de 5 km</option>
+            <option value="10000">Radio de 10 km</option>
+        </select>
+    </div>
 
-    <div class="filter-group">
-        <label><input type="checkbox" id="chk-agua" checked> 💧 Agua/Fuentes</label>
-        <label><input type="checkbox" id="chk-refugio" checked> 🛖 Refugios</label>
-        <label><input type="checkbox" id="chk-camping" checked> ⛺ Acampada</label>
-        <label><input type="checkbox" id="chk-museo"> 🏛️ Museos</label>
-        <label><input type="checkbox" id="chk-cascada"> 🌊 Cascadas</label>
-        <label><input type="checkbox" id="chk-super"> 🛒 Tiendas/Supermercados</label>
+    <div class="filter-section">
+        <strong style="font-size: 0.95em; color: #bdc3c7;">3. Grupos de Interés</strong>
+        <label><input type="checkbox" id="chk-agua" checked> 💧 Agua y Baños</label>
+        <label><input type="checkbox" id="chk-refugio" checked> 🛖 Refugios y Acampada</label>
+        <label><input type="checkbox" id="chk-comida" checked> 🛒 Comida y Tiendas</label>
+        <label><input type="checkbox" id="chk-picnic"> 🥪 Zonas Picnic/Cocina</label>
+        <label><input type="checkbox" id="chk-cultura"> 🏛️ Cultura, Historia y Museos</label>
+        <label><input type="checkbox" id="chk-servicios"> 🚲 Cajeros y Bicicletas</label>
     </div>
 
     <button class="btn-search" onclick="buscarPOIs()">Escanear Ruta (BBox)</button>
-    <button class="btn-download" onclick="descargarGPX()">Guardar para Garmin</button>
-    <div id="status" class="status">Carga un archivo GPX</div>
+    <div id="status" class="status">Esperando archivo...</div>
+    <button class="btn-download" onclick="descargarGPX()">Descargar Archivo Garmin</button>
 </div>
 
 <div id="map"></div>
@@ -62,6 +92,7 @@
     let pois = [];
     let originalXml = null;
     let trackLayer = null;
+    let baseFileName = "ruta";
     const statusBox = document.getElementById('status');
 
     const servers = [
@@ -71,6 +102,12 @@
     ];
 
     document.getElementById('gpxFile').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        // Guardamos el nombre original sin la extensión
+        baseFileName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+
         const reader = new FileReader();
         reader.onload = function(event) {
             originalXml = event.target.result;
@@ -88,7 +125,7 @@
             map.fitBounds(trackLayer.getBounds());
             statusBox.innerText = "Ruta cargada (" + routePoints.length + " puntos)";
         };
-        reader.readAsText(e.target.files[0]);
+        reader.readAsText(file);
     });
 
     function getDistance(lat1, lon1, lat2, lon2) {
@@ -120,36 +157,47 @@
         const bbox = `${minLat - margin},${minLon - margin},${maxLat + margin},${maxLon + margin}`;
 
         let filtros = "";
+        
         if (document.getElementById('chk-agua').checked) {
-            filtros += `node["amenity"~"drinking_water|water_point"](${bbox});`;
-            filtros += `node["natural"="spring"](${bbox});`;
+            filtros += `node["amenity"~"drinking_water|water_point|shower|toilets|public_bath"](${bbox});`;
+            filtros += `node["natural"~"spring|hot_spring"](${bbox});`;
             filtros += `node["man_made"="water_tap"](${bbox});`;
+            filtros += `node["building"="toilets"](${bbox});`;
         }
         if (document.getElementById('chk-refugio').checked) {
             filtros += `node["amenity"="shelter"](${bbox});`;
-            filtros += `node["tourism"~"alpine_hut|wilderness_hut"](${bbox});`;
+            filtros += `node["shelter_type"~"Wetterpilz|basic_hut|lean_to|picnic_shelter|rock_shelter|weather_shelter|wetterpilz"](${bbox});`;
+            filtros += `node["building"="hut"](${bbox});`;
+            filtros += `node["tourism"~"alpine_hut|wilderness_hut|camp_site"](${bbox});`;
+            filtros += `node["leisure"~"bird_hide|wildlife_hide"](${bbox});`;
         }
-        if (document.getElementById('chk-camping').checked) {
-            filtros += `node["tourism"~"camp_site|camp_pitch"](${bbox});`;
-            filtros += `node["backcountry"="yes"](${bbox});`;
+        if (document.getElementById('chk-comida').checked) {
+            filtros += `node["shop"~"supermarket|convenience|bakery|food|grocery"](${bbox});`;
+            filtros += `node["building"="supermarket"](${bbox});`;
         }
-        if (document.getElementById('chk-museo').checked) {
-            filtros += `node["tourism"="museum"](${bbox});`;
+        if (document.getElementById('chk-picnic').checked) {
+            filtros += `node["leisure"="picnic_table"](${bbox});`;
+            filtros += `node["tourism"="picnic_site"](${bbox});`;
+            filtros += `node["amenity"="kitchen"](${bbox});`;
         }
-        if (document.getElementById('chk-cascada').checked) {
-            filtros += `node["waterway"="waterfall"](${bbox});`;
+        if (document.getElementById('chk-cultura').checked) {
+            filtros += `node["tourism"~"museum|attraction"](${bbox});`;
+            filtros += `node["building"~"cathedral|monastery|castle"](${bbox});`;
+            filtros += `node["amenity"~"monastery|library"](${bbox});`;
+            filtros += `node["historic"](${bbox});`;
         }
-        if (document.getElementById('chk-super').checked) {
-            filtros += `node["shop"~"supermarket|convenience"](${bbox});`;
+        if (document.getElementById('chk-servicios').checked) {
+            filtros += `node["amenity"~"atm|bicycle_repair_station"](${bbox});`;
+            filtros += `node["shop"="bicycle"](${bbox});`;
         }
 
-        if (!filtros) return alert("Selecciona al menos un filtro");
+        if (!filtros) return alert("Selecciona al menos un grupo de interés");
 
-        const query = `[out:json][timeout:60];(${filtros});out center;`;
+        const query = `[out:json][timeout:90];(${filtros});out center;`;
         
         let data = null;
         for (const url of servers) {
-            statusBox.innerText = `Consultando servidor: ${url.split('//')[1].split('/')[0]}...`;
+            statusBox.innerText = `Consultando base de datos global...`;
             try {
                 const res = await fetch(url, {
                     method: "POST",
@@ -164,10 +212,10 @@
         }
 
         if (!data || !data.elements) {
-            return statusBox.innerText = "Error: Todos los servidores están saturados.";
+            return statusBox.innerText = "Error: Servidores saturados. Intenta de nuevo en unos minutos.";
         }
 
-        statusBox.innerText = `Filtrando ${data.elements.length} resultados por distancia...`;
+        statusBox.innerText = `Filtrando resultados por cercanía real...`;
         
         pois.forEach(p => map.removeLayer(p.marker));
         pois = [];
@@ -187,20 +235,29 @@
 
             if (isNear) {
                 const tags = el.tags || {};
-                let tipo = "POI"; let sym = "Waypoint"; let emoji = "📍";
+                let tipo = "Punto de Interés"; let sym = "Waypoint"; let emoji = "📍";
 
-                if (tags.amenity === "drinking_water" || tags.natural === "spring" || tags.man_made === "water_tap" || tags.amenity === "water_point") {
+                // Clasificación exhaustiva basada en tus etiquetas
+                if (tags.amenity === "drinking_water" || tags.natural === "spring" || tags.man_made === "water_tap" || tags.amenity === "water_point" || tags.natural === "hot_spring") {
                     tipo = "Agua"; sym = "Drinking Water"; emoji = "💧";
-                } else if (tags.amenity === "shelter" || tags.tourism === "alpine_hut" || tags.tourism === "wilderness_hut") {
-                    tipo = "Refugio"; sym = "Lodge"; emoji = "🛖";
-                } else if (tags.tourism === "camp_site" || tags.tourism === "camp_pitch" || tags.backcountry === "yes") {
+                } else if (tags.amenity === "shower" || tags.amenity === "toilets" || tags.amenity === "public_bath" || tags.building === "toilets") {
+                    tipo = "Aseos/Baños"; sym = "Restroom"; emoji = "🚽";
+                } else if (tags.amenity === "shelter" || tags.tourism === "alpine_hut" || tags.tourism === "wilderness_hut" || tags.building === "hut" || tags.shelter_type) {
+                    tipo = "Refugio/Cobertizo"; sym = "Lodge"; emoji = "🛖";
+                } else if (tags.tourism === "camp_site") {
                     tipo = "Acampada"; sym = "Campground"; emoji = "⛺";
-                } else if (tags.tourism === "museum") {
-                    tipo = "Museo"; sym = "Museum"; emoji = "🏛️";
-                } else if (tags.waterway === "waterfall") {
-                    tipo = "Cascada"; sym = "Waterfall"; emoji = "🌊";
-                } else if (tags.shop === "supermarket" || tags.shop === "convenience") {
-                    tipo = "Supermercado"; sym = "Grocery Store"; emoji = "🛒";
+                } else if (tags.leisure === "bird_hide" || tags.leisure === "wildlife_hide") {
+                    tipo = "Observatorio de fauna"; sym = "Lodge"; emoji = "🦆";
+                } else if (tags.leisure === "picnic_table" || tags.tourism === "picnic_site" || tags.amenity === "kitchen") {
+                    tipo = "Picnic/Cocina"; sym = "Picnic Area"; emoji = "🥪";
+                } else if ((tags.shop && ["supermarket", "convenience", "bakery", "food", "grocery"].includes(tags.shop)) || tags.building === "supermarket") {
+                    tipo = "Tienda/Supermercado"; sym = "Grocery Store"; emoji = "🛒";
+                } else if (tags.historic || ["museum", "attraction"].includes(tags.tourism) || tags.amenity === "library" || ["cathedral", "monastery", "castle"].includes(tags.building) || tags.amenity === "monastery") {
+                    tipo = "Cultura/Patrimonio"; sym = "Museum"; emoji = "🏛️";
+                } else if (tags.amenity === "atm") {
+                    tipo = "Cajero Automático"; sym = "Bank"; emoji = "🏧";
+                } else if (tags.shop === "bicycle" || tags.amenity === "bicycle_repair_station") {
+                    tipo = "Servicio Bicicletas"; sym = "Bike Trail"; emoji = "🚲";
                 }
 
                 const markerIcon = L.divIcon({
@@ -212,23 +269,23 @@
 
                 const dot = L.marker([lat, lon], {icon: markerIcon}).addTo(map);
                 const nombre = tags.name || tipo;
-                
-                // Generamos el enlace a Google Maps usando las coordenadas
-                const gmapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+                const gmapsLink = `https://www.google.com/maps/search/?api=1&query=$${lat},${lon}`; // Formato compatible para forzar coordenadas
                 
                 dot.bindPopup(`
-                    <b style="font-size:1.1em;">${nombre}</b><br>
-                    <small style="color:#555;">${tipo}</small><br>
-                    <small style="font-family:monospace; background:#eee; padding:2px 4px; border-radius:3px;">${lat.toFixed(5)}, ${lon.toFixed(5)}</small><br>
-                    <a href="${gmapsLink}" target="_blank" class="popup-link">Abrir en Google Maps ↗</a><br>
-                    <button class="popup-btn-desc" onclick="window.borrar(${el.id})">Descartar de la ruta</button>
+                    <b style="font-size:1.1em; color:#2c3e50;">${nombre}</b><br>
+                    <small style="color:#7f8c8d; font-weight:bold;">${tipo}</small><br>
+                    <div style="margin: 8px 0; padding: 4px; background: #ecf0f1; border-radius: 4px; font-family: monospace; font-size: 0.9em; text-align: center;">
+                        ${lat.toFixed(5)}, ${lon.toFixed(5)}
+                    </div>
+                    <a href="${gmapsLink}" target="_blank" class="popup-link">🗺️ Ver en Google Maps</a><br>
+                    <button class="popup-btn-desc" onclick="window.borrar(${el.id})">❌ Eliminar de la ruta</button>
                 `);
                 
                 pois.push({ id: el.id, lat: lat, lon: lon, nombre: nombre, sym: sym, marker: dot });
             }
         });
 
-        statusBox.innerText = `Escaneo finalizado. Añadidos ${pois.length} lugares a tu ruta.`;
+        statusBox.innerText = `¡Listo! Se han añadido ${pois.length} lugares al mapa.`;
     }
 
     window.borrar = function(id) {
@@ -236,12 +293,12 @@
         if (idx > -1) {
             map.removeLayer(pois[idx].marker);
             pois.splice(idx, 1);
-            statusBox.innerText = `Punto descartado. Quedan ${pois.length} lugares.`;
+            statusBox.innerText = `Punto descartado. Quedan ${pois.length} en la ruta.`;
         }
     };
 
     function descargarGPX() {
-        if (pois.length === 0) return alert("No hay puntos para descargar");
+        if (pois.length === 0) return alert("No se han encontrado puntos nuevos para descargar");
         
         const waypointsXml = pois.map(p => `
     <wpt lat="${p.lat}" lon="${p.lon}">
@@ -253,7 +310,10 @@
         const blob = new Blob([finalContent], {type: 'application/gpx+xml'});
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = "ruta_enriquecida_pro.gpx";
+        
+        // Uso del nombre base original para la descarga
+        a.download = `${baseFileName}_enriquecido.gpx`;
+        
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
