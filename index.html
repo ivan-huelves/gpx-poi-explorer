@@ -269,7 +269,7 @@
 
                 const dot = L.marker([lat, lon], {icon: markerIcon}).addTo(map);
                 const nombre = tags.name || tipo;
-                const gmapsLink = `https://www.google.com/maps/search/?api=1&query=$${lat},${lon}`; // Formato compatible para forzar coordenadas
+                const gmapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`; // Formato compatible para forzar coordenadas
                 
                 dot.bindPopup(`
                     <b style="font-size:1.1em; color:#2c3e50;">${nombre}</b><br>
