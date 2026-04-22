@@ -2,21 +2,24 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GPX POI Explorer</title>
+    <title>Explorador de Rutas y Puntos de Interés</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-        #controls { padding: 15px; background: #f4f4f4; border-bottom: 1px solid #ccc; display: flex; gap: 20px; flex-wrap: wrap; }
+        #controls { padding: 15px; background: #f8f9fa; border-bottom: 1px solid #ddd; display: flex; gap: 15px; flex-wrap: wrap; align-items: center; }
         #map { flex-grow: 1; }
-        .poi-item { font-size: 12px; }
-        button { cursor: pointer; padding: 8px 12px; }
+        .status-msg { font-size: 0.9em; color: #555; font-style: italic; }
+        button { cursor: pointer; padding: 10px 15px; border: none; border-radius: 4px; background: #007bff; color: white; }
+        button:hover { background: #0056b3; }
+        .btn-download { background: #28a745; }
+        .btn-download:hover { background: #218838; }
     </style>
 </head>
 <body>
 
 <div id="controls">
     <div>
-        <strong>1. Subir GPX:</strong>
+        <strong>1. Archivo:</strong>
         <input type="file" id="gpxFile" accept=".gpx">
     </div>
     <div>
@@ -28,14 +31,15 @@
         </select>
     </div>
     <div>
-        <strong>3. Intereses:</strong>
+        <strong>3. Filtros:</strong>
         <label><input type="checkbox" value="viewpoint" checked> Miradores</label>
         <label><input type="checkbox" value="fountain"> Fuentes</label>
-        <label><input type="checkbox" value="peak"> Picos</label>
-        <label><input type="checkbox" value="museum"> Museos</label>
+        <label><input type="checkbox" value="peak"> Cimas</label>
+        <label><input type="checkbox" value="castle"> Castillos</label>
     </div>
-    <button onclick="buscarPOIs()">Buscar Lugares</button>
-    <button onclick="descargarGPX()" style="background: #e1f5fe;">Descargar GPX final</button>
+    <button onclick="buscarPOIs()">Buscar lugares</button>
+    <button class="btn-download" onclick="descargarGPX()">Descargar GPX</button>
+    <div id="status" class="status-msg">Esperando archivo...</div>
 </div>
 
 <div id="map"></div>
@@ -45,41 +49,88 @@
 
 <script>
     const map = L.map('map').setView([40.4167, -3.7037], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
 
     let routeCoordinates = [];
     let foundPOIs = [];
     let gpxRawData = null;
+    let trackLayer = null;
+
+    const statusDiv = document.getElementById('status');
 
     document.getElementById('gpxFile').addEventListener('change', function(e) {
         const file = e.target.files[0];
+        if (!file) return;
+
+        statusDiv.innerText = "Cargando archivo...";
         const reader = new FileReader();
+        
         reader.onload = function(event) {
-            gpxRawData = event.target.result;
-            const gpx = new gpxParser();
-            gpx.parse(gpxRawData);
-            
-            routeCoordinates = gpx.tracks[0].points.map(p => [p.lat, p.lon]);
-            const line = L.polyline(routeCoordinates, {color: 'blue'}).addTo(map);
-            map.fitBounds(line.getBounds());
+            try {
+                gpxRawData = event.target.result;
+                const gpx = new gpxParser();
+                gpx.parse(gpxRawData);
+                
+                routeCoordinates = [];
+
+                // Intentamos extraer puntos de tracks (pistas)
+                if (gpx.tracks && gpx.tracks.length > 0) {
+                    gpx.tracks.forEach(track => {
+                        track.segments.forEach(segment => {
+                            segment.points.forEach(p => routeCoordinates.push([p.lat, p.lon]));
+                        });
+                    });
+                } 
+                // Si no hay tracks, probamos con rutas (routes)
+                else if (gpx.routes && gpx.routes.length > 0) {
+                    gpx.routes.forEach(route => {
+                        route.points.forEach(p => routeCoordinates.push([p.lat, p.lon]));
+                    });
+                }
+
+                if (routeCoordinates.length === 0) {
+                    throw new Error("No se encontraron puntos de ruta en el archivo.");
+                }
+
+                if (trackLayer) map.removeLayer(trackLayer);
+                trackLayer = L.polyline(routeCoordinates, {color: '#ff4400', weight: 4}).addTo(map);
+                map.fitBounds(trackLayer.getBounds());
+                statusDiv.innerText = "Ruta cargada con éxito.";
+                
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerText = "Error: " + err.message;
+                alert("El archivo no parece tener un formato de ruta válido.");
+            }
         };
         reader.readAsText(file);
     });
 
     async function buscarPOIs() {
-        if (routeCoordinates.length === 0) return alert("Sube un GPX primero");
+        if (routeCoordinates.length === 0) return alert("Primero debes subir un archivo GPX.");
         
         const radius = document.getElementById('radius').value;
         const selectedTypes = Array.from(document.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
         
-        // Simplificamos la ruta para la búsqueda (un punto cada 1km aprox)
-        const searchPoints = routeCoordinates.filter((_, i) => i % 20 === 0);
+        if (selectedTypes.length === 0) return alert("Selecciona al menos una categoría.");
+
+        statusDiv.innerText = "Buscando puntos de interés (esto puede tardar)...";
+        
+        // Simplificación: buscamos en puntos clave para no saturar la API
+        const step = Math.max(1, Math.floor(routeCoordinates.length / 50));
+        const searchPoints = routeCoordinates.filter((_, i) => i % step === 0);
         
         foundPOIs = [];
-        alert("Buscando... esto puede tardar unos segundos.");
 
         for (const [lat, lon] of searchPoints) {
-            const typesQuery = selectedTypes.map(t => `node["tourism"="${t}"](around:${radius},${lat},${lon}); node["natural"="${t}"](around:${radius},${lat},${lon}); node["amenity"="${t}"](around:${radius},${lat},${lon});`).join("");
+            const typesQuery = selectedTypes.map(t => `
+                node["tourism"="${t}"](around:${radius},${lat},${lon});
+                node["natural"="${t}"](around:${radius},${lat},${lon});
+                node["historic"="${t}"](around:${radius},${lat},${lon});
+                node["amenity"="${t}"](around:${radius},${lat},${lon});
+            `).join("");
             
             const query = `[out:json];(${typesQuery});out body;`;
             const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
@@ -87,49 +138,62 @@
             try {
                 const response = await fetch(url);
                 const data = await response.json();
-                data.elements.forEach(el => {
-                    if (!foundPOIs.find(p => p.id === el.id)) {
-                        foundPOIs.push(el);
-                        addMarker(el);
-                    }
-                });
-            } catch (e) { console.error("Error en Overpass", e); }
+                if (data.elements) {
+                    data.elements.forEach(el => {
+                        if (!foundPOIs.find(p => p.id === el.id)) {
+                            foundPOIs.push(el);
+                            addMarker(el);
+                        }
+                    });
+                }
+            } catch (e) { console.error("Error en la petición:", e); }
         }
+        statusDiv.innerText = `Búsqueda finalizada. Se han encontrado ${foundPOIs.length} puntos.`;
     }
 
     function addMarker(poi) {
         const marker = L.marker([poi.lat, poi.lon]).addTo(map);
-        const name = poi.tags.name || "Lugar sin nombre";
-        marker.bindPopup(`
-            <b>${name}</b><br>
-            <button onclick="descartarPOI(${poi.id}, this)">Descartar</button>
-        `);
+        const name = poi.tags.name || "Lugar sin nombre oficial";
+        const type = poi.tags.tourism || poi.tags.natural || poi.tags.historic || "Punto de interés";
+        
+        const popupContent = document.createElement('div');
+        popupContent.innerHTML = `
+            <strong>${name}</strong><br>
+            <small>${type}</small><br><br>
+            <button onclick="window.eliminarPunto(${poi.id})">Descartar este punto</button>
+        `;
+        marker.bindPopup(popupContent);
         poi.marker = marker;
     }
 
-    window.descartarPOI = function(id) {
+    window.eliminarPunto = function(id) {
         const index = foundPOIs.findIndex(p => p.id === id);
         if (index > -1) {
             map.removeLayer(foundPOIs[index].marker);
             foundPOIs.splice(index, 1);
+            statusDiv.innerText = `Punto eliminado. Quedan ${foundPOIs.length} puntos.`;
         }
     };
 
     function descargarGPX() {
+        if (foundPOIs.length === 0) return alert("No hay puntos nuevos para descargar.");
+
         let waypointsXml = foundPOIs.map(p => `
     <wpt lat="${p.lat}" lon="${p.lon}">
         <name>${p.tags.name || "Interés"}</name>
+        <desc>${p.tags.tourism || p.tags.natural || "Añadido mediante GPX Explorer"}</desc>
     </wpt>`).join("");
 
-        // Insertamos los waypoints antes del final del archivo original
         const finalGpx = gpxRawData.replace('</gpx>', waypointsXml + '\n</gpx>');
         
         const blob = new Blob([finalGpx], {type: 'application/gpx+xml'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = "ruta_con_puntos.gpx";
+        a.download = "ruta_personalizada.gpx";
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
     }
 </script>
 </body>
