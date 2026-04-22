@@ -21,9 +21,9 @@
     <input type="file" id="gpxFile" accept=".gpx">
     
     <select id="radius">
-        <option value="1000">Radio: 1 km</option>
-        <option value="3000">Radio: 3 km</option>
-        <option value="5000">Radio: 5 km</option>
+        <option value="1000">Radio 1 km</option>
+        <option value="3000">Radio 3 km</option>
+        <option value="5000">Radio 5 km</option>
     </select>
 
     <div class="filter-group">
@@ -52,7 +52,6 @@
     let trackLayer = null;
     const statusBox = document.getElementById('status');
 
-    // Diccionario de símbolos Garmin
     const garminSymbols = {
         'viewpoint': 'Scenic Area',
         'fountain': 'Drinking Water',
@@ -89,39 +88,56 @@
         const selected = Array.from(document.querySelectorAll('.poi-filter:checked'))
                              .map(c => c.value).join(',').split(',');
 
-        statusBox.innerText = "Analizando ruta completa...";
+        statusBox.innerText = "Enviando paquete unificado al servidor...";
         
-        // Dividimos la ruta en 50 tramos iguales para asegurar cobertura total
-        const step = Math.max(1, Math.floor(routePoints.length / 50));
+        const step = Math.max(1, Math.floor(routePoints.length / 40));
         const scanPoints = routePoints.filter((_, i) => i % step === 0);
         
-        pois = [];
+        const coordsString = scanPoints.map(p => `${p[0]},${p[1]}`).join(',');
         
-        for (const [lat, lon] of scanPoints) {
-            const types = selected.map(t => `node["tourism"="${t}"](around:${radius},${lat},${lon}); node["natural"="${t}"](around:${radius},${lat},${lon}); node["amenity"="${t}"](around:${radius},${lat},${lon}); node["historic"="${t}"](around:${radius},${lat},${lon});`).join("");
-            const query = `[out:json];(${types});out body;`;
+        let typesQuery = "";
+        selected.forEach(t => {
+            typesQuery += `node["tourism"="${t}"](around:${radius},${coordsString});\n`;
+            typesQuery += `node["natural"="${t}"](around:${radius},${coordsString});\n`;
+            typesQuery += `node["amenity"="${t}"](around:${radius},${coordsString});\n`;
+            typesQuery += `node["historic"="${t}"](around:${radius},${coordsString});\n`;
+        });
+
+        const query = `[out:json][timeout:30];\n(${typesQuery});\nout body;`;
+        pois = [];
+
+        try {
+            const res = await fetch("https://overpass-api.de/api/interpreter", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: "data=" + encodeURIComponent(query)
+            });
+
+            if (!res.ok) throw new Error("El servidor rechazó la conexión");
+
+            const data = await res.json();
             
-            try {
-                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-                const data = await res.json();
+            if (data && data.elements) {
                 data.elements.forEach(el => {
                     if (!pois.find(p => p.id === el.id)) {
-                        const type = el.tags.tourism || el.tags.natural || el.tags.amenity || el.tags.historic;
+                        const type = el.tags.tourism || el.tags.natural || el.tags.amenity || el.tags.historic || "generic";
                         el.type = type;
                         renderPOI(el);
                         pois.push(el);
                     }
                 });
-            } catch (err) { console.error("Error Overpass", err); }
+            }
+            statusBox.innerText = "Escaneo finalizado con " + pois.length + " lugares";
+        } catch (err) { 
+            console.error(err);
+            statusBox.innerText = "Fallo de conexión o límite excedido";
         }
-        statusBox.innerText = "Escaneo finalizado: " + pois.length + " lugares";
     }
 
     function renderPOI(p) {
-        // Colores por tipo para el mapa
         const color = p.type === 'fountain' ? 'blue' : p.type === 'viewpoint' ? 'green' : 'orange';
         const dot = L.circleMarker([p.lat, p.lon], {radius: 8, color: color, fillOpacity: 0.8}).addTo(map);
-        dot.bindPopup(`<b>${p.tags.name || 'Interés'}</b><br><small>${p.type}</small><br><button onclick="window.borrar(${p.id})">Quitar</button>`);
+        dot.bindPopup(`<b>${p.tags.name || 'Punto de interés'}</b><br><small>${p.type}</small><br><button onclick="window.borrar(${p.id})">Quitar de la ruta</button>`);
         p.marker = dot;
     }
 
@@ -130,15 +146,19 @@
         if (idx > -1) {
             map.removeLayer(pois[idx].marker);
             pois.splice(idx, 1);
+            statusBox.innerText = "Punto borrado. Quedan " + pois.length;
         }
     };
 
     function descargarGPX() {
+        if (pois.length === 0) return alert("No hay puntos para descargar");
+        
         const waypointsXml = pois.map(p => {
             const sym = garminSymbols[p.type] || 'Waypoint';
+            const safeName = (p.tags.name || 'Punto').replace(/[&<>"']/g, "");
             return `
     <wpt lat="${p.lat}" lon="${p.lon}">
-        <name>${(p.tags.name || 'Punto').replace(/[&<>"']/g, "")}</name>
+        <name>${safeName}</name>
         <sym>${sym}</sym>
     </wpt>`;
         }).join("");
@@ -148,7 +168,9 @@
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = "ruta_garmin_pro.gpx";
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
     }
 </script>
 </body>
